@@ -1,0 +1,276 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using BambooEnterprise.Models;
+using BambooEnterprise.Data;
+using BambooEnterprise.Testing;
+
+namespace BambooEnterprise
+{
+    class Program
+    {
+        static List<BambooSpecies> SpeciesDb = new();
+        static List<InventoryBatch> InventoryDb = new();
+        static List<PerformanceLog> GrowthDb = new();
+        static List<OperationalExpense> ExpenseDb = new();
+
+        static void Main(string[] args)
+        {
+            try
+            {
+                LoadAllData();
+                if (!SpeciesDb.Any()) SeedSampleData();
+                MainMenu();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Startup Error: {ex.Message}");
+                Console.ReadKey();
+            }
+        }
+
+        static void MainMenu()
+        {
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("=== BAMBOO INFORMATION MANAGEMENT SYSTEM ===");
+                ShowActiveAlerts();
+                Console.WriteLine("\n1. Manage Biological Profiles (DNA)");
+                Console.WriteLine("2. Track Inventory & Acquisition");
+                Console.WriteLine("3. Log Growth & Harvests");
+                Console.WriteLine("4. Operational Expenses (OpEx)");
+                Console.WriteLine("5. Financial Reports (P&L)");
+                Console.WriteLine("6. Reset/Re-Seed Database");
+                Console.WriteLine("Q. Quit Application");
+
+                Console.Write("\nSelect: ");
+                string choice = Console.ReadLine()?.ToUpper();
+                if (choice == "Q") return;
+                try { HandleChoice(choice); }
+                catch (Exception ex) when (ex.Message == "MainMenu") { continue; }
+                catch (Exception ex) { Console.WriteLine($"Error: {ex.Message}"); Console.ReadKey(); }
+            }
+        }
+
+        static void ShowActiveAlerts()
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            int month = DateTime.Now.Month;
+            int year = DateTime.Now.Year;
+            if (month >= 5 && month <= 7) Console.WriteLine("!!! ALERT: Peak EDIBLE SHOOT harvest season (May-July) !!!");
+            if (month >= 10 || month <= 2) Console.WriteLine("!!! ALERT: Peak TIMBER harvest season (Autumn-Winter) !!!");
+            foreach (var b in InventoryDb.Where(batch => batch.IsPeakCulmAge(year)))
+                Console.WriteLine($"> Batch {b.BatchID} ({b.PlantUID}) reached PEAK CULM MATURITY (4+ yrs).");
+            Console.ResetColor();
+        }
+
+        static void HandleChoice(string choice)
+        {
+            switch (choice)
+            {
+                case "1": ManageSpeciesFlow(); break;
+                case "2": ManageInventoryFlow(); break;
+                case "3": ManageGrowthFlow(); break;
+                case "4": ManageExpenseFlow(); break;
+                case "5":
+                    PersistenceManager.GeneratePLReport(InventoryDb, GrowthDb, ExpenseDb);
+                    PersistenceManager.ExportToExcel(InventoryDb, "Inventory_Report");
+                    Console.WriteLine("Reports generated in Reports/ folder."); Console.ReadKey(); break;
+                case "6": SeedSampleData(); break;
+            }
+        }
+
+        static void ManageSpeciesFlow()
+        {
+            Console.Clear();
+            Console.WriteLine("--- BIOLOGICAL PROFILES (DNA) ---");
+            Console.WriteLine("S. Search Filter | V. View All | B. Back");
+            string cmd = Console.ReadLine()?.ToUpper();
+
+            if (cmd == "B") return;
+
+            IEnumerable<BambooSpecies> displayList = SpeciesDb;
+
+            if (cmd == "S")
+            {
+                Console.Write("Enter search term (Scientific Name or Hardiness °C): ");
+                string filter = Console.ReadLine()?.ToLower();
+                displayList = SpeciesDb.Where(s =>
+                    ($"{s.Genus} {s.Species} {s.Cultivar}").ToLower().Contains(filter) ||
+                    s.HardinessLow.ToString().Contains(filter));
+            }
+
+            int count = 0;
+            foreach (var s in displayList)
+            {
+                if (count % 10 == 0)
+                {
+                    Console.WriteLine("\n{0,-12} {1,-42} {2,-7} {3,-7} {4}",
+                        "UID", "Scientific Name \"Cultivar\"", "Hardy", "Max Ht", "Research Notes");
+                    Console.WriteLine();
+                }
+
+                string name = $"{s.Genus} {s.Species} \"{s.Cultivar}\"".Trim();
+                Console.WriteLine("{0,-12} {1,-42} {2,-7} {3,-7} {4}",
+                    s.PlantUID, name, s.HardinessLow + "C", s.HeightHigh + "m", s.SverigeSpecifikt);
+                count++;
+            }
+            Console.WriteLine("\nPress any key to return...");
+            Console.ReadKey();
+        }
+
+        #region CRUD Logic
+        static void ManageInventoryFlow()
+        {
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("--- 2. TRACK INVENTORY ---");
+                Console.WriteLine("1. View | 2. Add | 3. Update | 4. Delete | B. Back");
+                string cmd = Console.ReadLine()?.ToUpper();
+                if (cmd == "B") return;
+
+                if (cmd == "1") ViewInventory();
+                if (cmd == "2") AddInventoryFlow();
+                if (cmd == "3") UpdateInventoryFlow();
+                if (cmd == "4") DeleteInventoryFlow();
+            }
+        }
+
+        static void ViewInventory()
+        {
+            foreach (var b in InventoryDb) Console.WriteLine($"{b.BatchID} | {b.PlantUID} | {b.Quantity} units | {b.TotalCostSek:N2} SEK");
+            Console.ReadKey();
+        }
+        static void AddInventoryFlow()
+        {
+            string uid = RequestInput("Plant UID (DNA Link)", true);
+            if (!SpeciesDb.Any(s => s.PlantUID == uid)) throw new Exception("UID not found.");
+
+            var batch = new InventoryBatch
+            {
+                BatchID = RequestInput("Batch ID", true),
+                PlantUID = uid,
+                PurchaseDate = ValidateDate(RequestInput("Date (YYYY-MM-DD)", true)),
+                Quantity = ValidatePositiveInt(RequestInput("Quantity", true)),
+                UnitCost = ValidatePositiveDouble(RequestInput("Unit Cost", true)),
+                ExchangeRateToSek = ValidatePositiveDouble(RequestInput("Exch Rate to SEK", true))
+            };
+            InventoryDb.Add(batch);
+            PersistenceManager.SaveToJson(InventoryDb, "inventory.json");
+        }
+
+
+        static void UpdateInventoryFlow()
+        {
+            string bid = RequestInput("Enter Batch ID to update", true);
+            var b = InventoryDb.FirstOrDefault(x => x.BatchID == bid);
+            if (b == null) throw new Exception("Batch not found.");
+            string newQty = RequestInput($"New Qty (Current: {b.Quantity})", false);
+            if (!string.IsNullOrEmpty(newQty)) b.Quantity = ValidatePositiveInt(newQty);
+            PersistenceManager.SaveToJson(InventoryDb, "inventory.json");
+        }
+
+        static void DeleteInventoryFlow()
+        {
+            string bid = RequestInput("Batch ID to delete", true);
+            var b = InventoryDb.FirstOrDefault(x => x.BatchID == bid);
+            if (b != null) { InventoryDb.Remove(b); PersistenceManager.SaveToJson(InventoryDb, "inventory.json"); }
+        }
+
+
+        static void ManageGrowthFlow()
+        {
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("--- 3. GROWTH ---");
+                Console.WriteLine("1. View | 2. Add | B. Back");
+                string cmd = Console.ReadLine()?.ToUpper();
+                if (cmd == "B") return;
+                if (cmd == "1")
+                {
+                    foreach (var l in GrowthDb) Console.WriteLine($"{l.Date:yyyy-MM} | Batch {l.BatchID} | Ht: {l.MaxHeightCurrent}m");
+                    Console.ReadKey();
+                }
+                if (cmd == "2")
+                {
+                    string bid = RequestInput("Batch ID", true);
+                    GrowthDb.Add(new PerformanceLog
+                    {
+                        LogID = Guid.NewGuid().ToString().Substring(0, 8),
+                        BatchID = bid,
+                        Date = DateTime.Now,
+                        NewShootCount = ValidatePositiveInt(RequestInput("Shoots", true)),
+                        MaxHeightCurrent = ValidatePositiveDouble(RequestInput("Ht", true)),
+                        CulmRevenueSek = ValidatePositiveDouble(RequestInput("Culm Rev", false) ?? "0"),
+                        ShootRevenueSek = ValidatePositiveDouble(RequestInput("Shoot Rev", false) ?? "0")
+                    });
+                    PersistenceManager.SaveToJson(GrowthDb, "logs.json");
+                }
+            }
+        }
+
+        static void ManageExpenseFlow()
+        {
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("--- 4. EXPENSES ---");
+                Console.WriteLine("1. View | 2. Add | B. Back");
+                string cmd = Console.ReadLine()?.ToUpper();
+                if (cmd == "B") return;
+                if (cmd == "1")
+                {
+                    foreach (var e in ExpenseDb) Console.WriteLine($"{e.Date:yyyy-MM} | {e.BatchID} | {e.MaintenanceCost} SEK");
+                    Console.ReadKey();
+                }
+                if (cmd == "2")
+                {
+                    string bid = RequestInput("Batch ID (or 'Global')", true);
+                    ExpenseDb.Add(new OperationalExpense
+                    {
+                        ExpenseID = Guid.NewGuid().ToString().Substring(0, 8),
+                        BatchID = bid,
+                        Date = DateTime.Now,
+                        MaintenanceCost = ValidatePositiveDouble(RequestInput("Maintenance", false) ?? "0"),
+                        LaborCost = ValidatePositiveDouble(RequestInput("Labor", false) ?? "0"),
+                        EquipmentCost = ValidatePositiveDouble(RequestInput("Equipment", false) ?? "0"),
+                        TransportCost = ValidatePositiveDouble(RequestInput("Transport", false) ?? "0")
+                    });
+                    PersistenceManager.SaveToJson(ExpenseDb, "expenses.json");
+                }
+            }
+        }
+
+        static void SeedSampleData()
+        {
+            SpeciesDb = SeedDataGenerator.GetResearchedSpecies();
+            PersistenceManager.SaveToJson(SpeciesDb, "species.json");
+            Console.WriteLine("Seeding Complete. Press any key..."); Console.ReadKey();
+        }
+
+        static void LoadAllData()
+        {
+            SpeciesDb = PersistenceManager.LoadFromJson<BambooSpecies>("species.json");
+            InventoryDb = PersistenceManager.LoadFromJson<InventoryBatch>("inventory.json");
+            GrowthDb = PersistenceManager.LoadFromJson<PerformanceLog>("logs.json");
+            ExpenseDb = PersistenceManager.LoadFromJson<OperationalExpense>("expenses.json");
+        }
+
+        static string RequestInput(string p, bool r)
+        {
+            Console.Write($"{p} (B back, M main): ");
+            string i = Console.ReadLine();
+            if (i?.ToUpper() == "B") throw new Exception("GoBack");
+            if (i?.ToUpper() == "M") throw new Exception("MainMenu");
+            if (string.IsNullOrEmpty(i) && r) return RequestInput(p, r);
+            return i;
+        }
+        static double ValidatePositiveDouble(string i) => double.TryParse(i, out double r) && r >= 0 ? r : throw new Exception("Invalid number.");
+        static int ValidatePositiveInt(string i) => int.TryParse(i, out int r) && r >= 0 ? r : throw new Exception("Invalid integer.");
+        static DateTime ValidateDate(string i) => DateTime.TryParse(i, out DateTime r) ? r : throw new Exception("Invalid date.");
+        #endregion
+    }
+}

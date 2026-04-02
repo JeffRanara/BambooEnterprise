@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="ProgramDraft01.cs" />
+    <Compile Remove="ProgramDraft02.cs" />
+    <Compile Remove="testP.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Bamboo.pdf" />
+    <None Remove="BIMS.pdf" />
+    <None Remove="Blah.pdf" />
+    <None Remove="Blah01.pdf" />
+    <None Remove="Blah02.pdf" />
+    <None Remove="Blah03.pdf" />
+    <None Remove="Blah04.pdf" />
+    <None Remove="Blah05.pdf" />
+    <None Remove="Models.cs.pdf" />
+    <None Remove="Persistences.cs.pdf" />
+    <None Remove="Program.cs.pdf" />
+    <None Remove="Programdraft.txt" />
+    <None Remove="SeedDataGenerator.cs.pdf" />
+    <None Remove="setupfolders.bat" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
+    <PackageReference Include="itext7" Version="9.5.0" />
+    <PackageReference Include="itext7.bouncy-castle-adapter" Version="9.5.0" />
+    <PackageReference Include="System.Text.Json" Version="10.0.5" />
+  </ItemGroup>
+
+</Project>
